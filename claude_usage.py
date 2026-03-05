@@ -8,6 +8,13 @@ from pathlib import Path
 import browser_cookie3
 import requests
 import rumps
+from AppKit import (
+    NSMutableAttributedString,
+    NSMutableParagraphStyle,
+    NSParagraphStyleAttributeName,
+    NSRightTextAlignment,
+    NSTextTab,
+)
 
 CONFIG_PATH = Path.home() / ".claude_usage_config.json"
 REFRESH_INTERVAL = 30  # seconds
@@ -86,11 +93,6 @@ def fetch_usage(org_id: str, jar: requests.cookies.RequestsCookieJar) -> dict | 
         return {"error": str(e)}
 
 
-def format_bar(percent: float, width: int = 18) -> str:
-    filled = round(percent / 100 * width)
-    return "▰" * filled + "▱" * (width - filled)
-
-
 def stat_icon(icon: str, percent: float) -> str:
     return "⚠️" if percent >= 80 else icon
 
@@ -131,6 +133,16 @@ def parse_usage(data: dict) -> list[dict]:
     return items
 
 
+
+def set_menu_item_title_right_aligned(menu_item: rumps.MenuItem, title: str, tab_x: float = 280) -> None:
+    para_style = NSMutableParagraphStyle.alloc().init()
+    tab_stop = NSTextTab.alloc().initWithTextAlignment_location_options_(NSRightTextAlignment, tab_x, {})
+    para_style.setTabStops_([tab_stop])
+    attr_str = NSMutableAttributedString.alloc().initWithString_(title)
+    attr_str.addAttribute_value_range_(NSParagraphStyleAttributeName, para_style, (0, len(title)))
+    menu_item._menuitem.setAttributedTitle_(attr_str)
+
+
 def make_menu_bar_title(items: list[dict], title_keys: set[str]) -> str:
     parts = [
         f"{i['icon']} {int(i['percent'])}%"
@@ -151,38 +163,21 @@ class ClaudeUsageApp(rumps.App):
         saved_keys = self.config.get("title_keys")
         self._title_keys: set[str] = set(saved_keys) if saved_keys else set(DEFAULT_TITLE_KEYS)
 
-        # Stat display rows (one label + one bar per stat)
+        # Stat display rows (one label per stat, clickable to toggle menu bar presence)
         self._label_items: list[rumps.MenuItem] = []
-        self._bar_items: list[rumps.MenuItem] = []
 
         menu_items: list = []
         for api_key, icon, full_label in STATS:
-            label_item = rumps.MenuItem(f"{icon} {full_label}", callback=None)
-            bar_item = rumps.MenuItem(" ▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱", callback=None)
+            label_item = rumps.MenuItem(f"{icon} {full_label}", callback=self._toggle_title_key)
+            label_item._api_key = api_key
+            label_item.state = 1 if api_key in self._title_keys else 0
             self._label_items.append(label_item)
-            self._bar_items.append(bar_item)
             menu_items.append(label_item)
-            menu_items.append(bar_item)
             menu_items.append(None)
 
-        # "Show in Menu Bar" submenu with checkboxes
-        self._toggle_items: dict[str, rumps.MenuItem] = {}
-        show_submenu = rumps.MenuItem("Show in Menu Bar")
-        for api_key, icon, full_label in STATS:
-            toggle = rumps.MenuItem(
-                f"{icon}  {full_label}",
-                callback=self._toggle_title_key,
-            )
-            toggle.state = 1 if api_key in self._title_keys else 0
-            self._toggle_items[api_key] = toggle
-            show_submenu.add(toggle)
-
-        self._updated_item = rumps.MenuItem("↻ --:--", callback=None)
+        self._updated_item = rumps.MenuItem("Updated: --:--", callback=None)
         menu_items += [
             self._updated_item,
-            None,
-            show_submenu,
-            None,
             rumps.MenuItem("↺ Refresh", callback=self.refresh_now),
             rumps.MenuItem("Quit", callback=rumps.quit_application),
         ]
@@ -195,21 +190,17 @@ class ClaudeUsageApp(rumps.App):
         self._do_refresh()
 
     def _toggle_title_key(self, sender: rumps.MenuItem) -> None:
-        # Find which api_key corresponds to this menu item
-        for api_key, toggle_item in self._toggle_items.items():
-            if toggle_item is sender:
-                if api_key in self._title_keys:
-                    self._title_keys.discard(api_key)
-                    sender.state = 0
-                else:
-                    self._title_keys.add(api_key)
-                    sender.state = 1
-                self.config["title_keys"] = list(self._title_keys)
-                save_config(self.config)
-                # Update title immediately using cached data
-                if self._cached_items:
-                    self.title = make_menu_bar_title(self._cached_items, self._title_keys)
-                break
+        api_key = sender._api_key
+        if api_key in self._title_keys:
+            self._title_keys.discard(api_key)
+            sender.state = 0
+        else:
+            self._title_keys.add(api_key)
+            sender.state = 1
+        self.config["title_keys"] = list(self._title_keys)
+        save_config(self.config)
+        if self._cached_items:
+            self.title = make_menu_bar_title(self._cached_items, self._title_keys)
 
     def _do_refresh(self) -> None:
         if not self._cookie_file:
@@ -256,11 +247,12 @@ class ClaudeUsageApp(rumps.App):
         for idx, item in enumerate(items):
             pct = item["percent"]
             icon = stat_icon(item["icon"], pct)
-            resets = f"   ↻ {item['resets']}" if item["resets"] else ""
-            self._label_items[idx].title = f"{icon} {item['full_label']}   {int(pct)}%"
-            self._bar_items[idx].title = f" {format_bar(pct)}{resets}"
+            resets = f"  ↻ {item['resets']}" if item["resets"] else ""
+            title = f"{icon} {item['full_label']}\t{int(pct)}%{resets}"
+            set_menu_item_title_right_aligned(self._label_items[idx], title)
+            self._label_items[idx].state = 1 if item["api_key"] in self._title_keys else 0
 
-        self._updated_item.title = f"↻ {datetime.now().strftime('%H:%M')}"
+        self._updated_item.title = f"Updated: {datetime.now().strftime('%H:%M')}"
 
     @rumps.clicked("↺ Refresh")
     def refresh_now(self, _: rumps.MenuItem) -> None:

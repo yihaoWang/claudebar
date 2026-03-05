@@ -29,9 +29,9 @@ REQUIRED_HEADERS = {
 
 # (api_key, icon, full_label) — all three always shown in dropdown
 STATS = [
-    ("five_hour",        "⊙",  "Current Session"),
-    ("seven_day",        "◈",  "Weekly · All Models"),
-    ("seven_day_sonnet", "✦",  "Weekly · Sonnet"),
+    ("five_hour",        "⏺",  "Current Session"),
+    ("seven_day",        "⬡",  "Weekly · All Models"),
+    ("seven_day_sonnet", "✳",  "Weekly · Sonnet"),
 ]
 
 # Default: which api_keys appear in the menu bar title
@@ -88,17 +88,13 @@ def fetch_usage(org_id: str, jar: requests.cookies.RequestsCookieJar) -> dict | 
         return {"error": str(e)}
 
 
-def format_bar(percent: float, width: int = 20) -> str:
+def format_bar(percent: float, width: int = 18) -> str:
     filled = round(percent / 100 * width)
-    return "█" * filled + "░" * (width - filled)
+    return "▰" * filled + "▱" * (width - filled)
 
 
-def pct_indicator(percent: float) -> str:
-    if percent >= 80:
-        return "🔴"
-    if percent >= 50:
-        return "🟡"
-    return "🟢"
+def stat_icon(icon: str, percent: float) -> str:
+    return "⚠️" if percent >= 80 else icon
 
 
 def format_resets_at(iso_str: str) -> str:
@@ -143,12 +139,12 @@ def make_menu_bar_title(items: list[dict], title_keys: set[str]) -> str:
         for i in items
         if i["api_key"] in title_keys
     ]
-    return "  ".join(parts) if parts else "☁️ --"
+    return "  ·  ".join(parts) if parts else "-- · --"
 
 
 class ClaudeUsageApp(rumps.App):
     def __init__(self) -> None:
-        super().__init__("☁️ --", quit_button=None)
+        super().__init__("-- · --", quit_button=None)
         self.config = load_config()
         self._cookie_file: str | None = self.config.get("cookie_file")
         self._cached_items: list[dict] = []
@@ -163,8 +159,8 @@ class ClaudeUsageApp(rumps.App):
 
         menu_items: list = []
         for api_key, icon, full_label in STATS:
-            label_item = rumps.MenuItem(f"  {icon}  {full_label}", callback=None)
-            bar_item = rumps.MenuItem("  ░░░░░░░░░░░░░░░░░░░░", callback=None)
+            label_item = rumps.MenuItem(f"{icon} {full_label}", callback=None)
+            bar_item = rumps.MenuItem(" ▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱", callback=None)
             self._label_items.append(label_item)
             self._bar_items.append(bar_item)
             menu_items.append(label_item)
@@ -183,14 +179,14 @@ class ClaudeUsageApp(rumps.App):
             self._toggle_items[api_key] = toggle
             show_submenu.add(toggle)
 
-        self._updated_item = rumps.MenuItem("  Updated: --", callback=None)
+        self._updated_item = rumps.MenuItem("↻ --:--", callback=None)
         menu_items += [
             self._updated_item,
             None,
             show_submenu,
             None,
-            rumps.MenuItem("⟳  Refresh", callback=self.refresh_now),
-            rumps.MenuItem("✕  Quit", callback=rumps.quit_application),
+            rumps.MenuItem("↺ Refresh", callback=self.refresh_now),
+            rumps.MenuItem("Quit", callback=rumps.quit_application),
         ]
 
         self.menu = menu_items
@@ -230,20 +226,20 @@ class ClaudeUsageApp(rumps.App):
 
         if not self._cookie_file:
             self.title = "☁️ ?"
-            self._label_items[0].title = "  No Chrome session found"
+            self._label_items[0].title = "No Chrome session found"
             return
 
         try:
             cookies = get_claude_cookies(self._cookie_file)
         except Exception as e:
             self.title = "☁️ Err"
-            self._label_items[0].title = f"  Cookie error: {e}"
+            self._label_items[0].title = f"Cookie error: {e}"
             return
 
         org_id = self.config.get("org_id") or cookies.get("lastActiveOrg")
         if not org_id:
             self.title = "☁️ ?"
-            self._label_items[0].title = "  Org ID not found"
+            self._label_items[0].title = "Org ID not found"
             return
 
         if not self.config.get("org_id"):
@@ -256,7 +252,7 @@ class ClaudeUsageApp(rumps.App):
         if data is None or "error" in data:
             err = data.get("error", "No response") if data else "No response"
             self.title = "☁️ Err"
-            self._label_items[0].title = f"  ⚠️  {err[:60]}"
+            self._label_items[0].title = f"⚠️ {err[:60]}"
             return
 
         items = parse_usage(data)
@@ -265,15 +261,14 @@ class ClaudeUsageApp(rumps.App):
 
         for idx, item in enumerate(items):
             pct = item["percent"]
-            resets = f"  ↻ {item['resets']}" if item["resets"] else ""
-            self._label_items[idx].title = (
-                f"  {pct_indicator(pct)}  {item['full_label']}  —  {int(pct)}%{resets}"
-            )
-            self._bar_items[idx].title = f"      {format_bar(pct)}"
+            icon = stat_icon(item["icon"], pct)
+            resets = f"   ↻ {item['resets']}" if item["resets"] else ""
+            self._label_items[idx].title = f"{icon} {item['full_label']}   {int(pct)}%"
+            self._bar_items[idx].title = f" {format_bar(pct)}{resets}"
 
-        self._updated_item.title = f"  Updated: {datetime.now().strftime('%H:%M:%S')}"
+        self._updated_item.title = f"↻ {datetime.now().strftime('%H:%M')}"
 
-    @rumps.clicked("⟳  Refresh")
+    @rumps.clicked("↺ Refresh")
     def refresh_now(self, _: rumps.MenuItem) -> None:
         threading.Thread(target=self._do_refresh, daemon=True).start()
 

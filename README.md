@@ -17,11 +17,12 @@ A macOS menu bar app that displays your Claude.ai plan usage in real time.
 - macOS
 - Google Chrome with an active claude.ai session
 - Python 3.11+
+- Dependencies listed in `requirements.txt`
 
 ## Installation
 
 ```bash
-pip install browser-cookie3 requests rumps
+pip install -r requirements.txt
 python claude_usage.py
 ```
 

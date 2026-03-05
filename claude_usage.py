@@ -2,8 +2,6 @@
 """Claude Usage Monitor - macOS menu bar app showing Claude plan usage limits."""
 
 import json
-import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -190,7 +188,11 @@ class ClaudeUsageApp(rumps.App):
         ]
 
         self.menu = menu_items
-        self._start_refresh_thread()
+        self.timer = rumps.Timer(self._timer_callback, REFRESH_INTERVAL)
+        self.timer.start()
+
+    def _timer_callback(self, timer):
+        self._do_refresh()
 
     def _toggle_title_key(self, sender: rumps.MenuItem) -> None:
         # Find which api_key corresponds to this menu item
@@ -208,14 +210,6 @@ class ClaudeUsageApp(rumps.App):
                 if self._cached_items:
                     self.title = make_menu_bar_title(self._cached_items, self._title_keys)
                 break
-
-    def _start_refresh_thread(self) -> None:
-        threading.Thread(target=self._refresh_loop, daemon=True).start()
-
-    def _refresh_loop(self) -> None:
-        while True:
-            self._do_refresh()
-            time.sleep(REFRESH_INTERVAL)
 
     def _do_refresh(self) -> None:
         if not self._cookie_file:
@@ -270,7 +264,7 @@ class ClaudeUsageApp(rumps.App):
 
     @rumps.clicked("↺ Refresh")
     def refresh_now(self, _: rumps.MenuItem) -> None:
-        threading.Thread(target=self._do_refresh, daemon=True).start()
+        self._do_refresh()
 
 
 if __name__ == "__main__":

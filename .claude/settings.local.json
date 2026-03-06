@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/yihao.wang/project/claudebar/setup.sh)"
+    ]
+  }
+}
